@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: notas.emeday.inc
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sistema-notas-api
+                port:
+                  number: 80
+
+
+#kubectl apply -f sa.yaml
+#kubectl apply -f deployment-service.yaml
+#kubectl apply -f ingress.yaml

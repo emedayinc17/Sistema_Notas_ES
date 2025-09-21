@@ -1,0 +1,186 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-notas
+  namespace: sistema-notas
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+  labels:
+    app: sistema-notas-api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: sistema-notas-api
+  template:
+    metadata:
+      labels:
+        app: sistema-notas-api
+      annotations:
+        # === Vault Agent Injector ===
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "sistema-notas-role"
+        # KV v2 → usar "kv/data/..." para leer
+        vault.hashicorp.com/agent-inject-secret-config: "kv/data/sistema-notas/app"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "kv/data/sistema-notas/app" -}}
+          DB_IAM={{ .Data.data.DB_IAM }}
+          DB_GRADES={{ .Data.data.DB_GRADES }}
+          MYSQL_USER_IAM={{ .Data.data.MYSQL_USER_IAM }}
+          MYSQL_PASS_IAM={{ .Data.data.MYSQL_PASS_IAM }}
+          MYSQL_USER_GRADES={{ .Data.data.MYSQL_USER_GRADES }}
+          MYSQL_PASS_GRADES={{ .Data.data.MYSQL_PASS_GRADES }}
+          MYSQL_HOST={{ .Data.data.MYSQL_HOST }}
+          MYSQL_PORT={{ .Data.data.MYSQL_PORT }}
+          JWT_SECRET={{ .Data.data.JWT_SECRET }}
+          JWT_ALG={{ .Data.data.JWT_ALG }}
+          JWT_EXP_MIN={{ .Data.data.JWT_EXP_MIN }}
+          {{- end }}
+        # Para debug del injector:
+        # vault.hashicorp.com/log-level: "debug"
+    spec:
+      serviceAccountName: app-notas
+      # Si tu repo en Docker Hub fuera PRIVADO, descomenta y crea dockerhub-creds
+      # imagePullSecrets:
+      #   - name: dockerhub-creds
+      containers:
+        - name: api
+          image: emeday17/sistema-notas-api:0.4
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          # Probes
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          # Recursos (ajusta según carga)
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          # Seguridad básica (el contenedor de tu app)
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+  labels:
+    app: sistema-notas-api
+spec:
+  type: ClusterIP   # <- aseguramos ClusterIP para usar Ingress/MetalLB
+  selector:
+    app: sistema-notas-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
+---
+# Ingress con TLS vía cert-manager (igual patrón que Sonar)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: selfsigned-issuer
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api-notas.emeday.inc
+      secretName: sistema-notas-tls
+  rules:
+    - host: api-notas.emeday.inc
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: sistema-notas-api
+                port:
+                  number: 80
+
+---
+# (OPCIONAL) NetworkPolicy: permite sólo:
+# - Ingress desde el namespace "ingress" (NGINX) a puerto 8000
+# - Egress a kube-dns, Vault API (namespace vault) y MySQL (namespace sistema-notas)
+# Actívala sólo si usas Calico/red policies y quieres restringir tráfico.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sistema-notas-restrict
+  namespace: sistema-notas
+spec:
+  podSelector:
+    matchLabels:
+      app: sistema-notas-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # kube-dns
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Vault API
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault
+      ports:
+        - protocol: TCP
+          port: 8200
+    # MySQL service interno
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: sistema-notas
+      ports:
+        - protocol: TCP
+          port: 3306

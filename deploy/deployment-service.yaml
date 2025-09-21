@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sistema-notas-api
+  template:
+    metadata:
+      labels:
+        app: sistema-notas-api
+      annotations:
+        # === Vault Agent Injector ===
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "sistema-notas-role"
+        # Path KV v2 → ojo: debe ser kv/data/... (no kv/...)
+        vault.hashicorp.com/agent-inject-secret-config: "kv/data/sistema-notas/app"
+        vault.hashicorp.com/agent-inject-template-config: |
+          {{- with secret "kv/data/sistema-notas/app" -}}
+          # Bases y credenciales (dos DB)
+          DB_IAM={{ .Data.data.DB_IAM }}
+          DB_GRADES={{ .Data.data.DB_GRADES }}
+          MYSQL_USER_IAM={{ .Data.data.MYSQL_USER_IAM }}
+          MYSQL_PASS_IAM={{ .Data.data.MYSQL_PASS_IAM }}
+          MYSQL_USER_GRADES={{ .Data.data.MYSQL_USER_GRADES }}
+          MYSQL_PASS_GRADES={{ .Data.data.MYSQL_PASS_GRADES }}
+          # Otros secretos
+          JWT_SECRET={{ .Data.data.JWT_SECRET }}
+          # Si quieres parametrizar host/puerto vía Vault, añade:
+          # MYSQL_HOST={{ .Data.data.MYSQL_HOST }}
+          # MYSQL_PORT={{ .Data.data.MYSQL_PORT }}
+          {{- end }}
+    spec:
+      serviceAccountName: app-notas
+      containers:
+        - name: api
+          image: localhost:32000/sistema-notas-api:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          # Probes básicas (ajusta el path si tienes /health)
+          readinessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /docs
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+spec:
+  selector:
+    app: sistema-notas-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP
