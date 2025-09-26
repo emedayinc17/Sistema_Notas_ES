@@ -1,0 +1,353 @@
+@startuml
+title SISTEMA_NOTAS — UML Class Diagram (Completo) \n(IAM + GRADES • endpoints + BD + servicios)
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+hide circle
+
+' =============================
+' ENUMS
+' =============================
+enum RolNombre {
+  DOCENTE
+  PADRE
+  DIRECTIVO
+}
+
+' =============================
+' API (Routers / Controllers)
+' =============================
+package "API (FastAPI Routers)" {
+  class IAMController <<controller>> {
+    +login(req: LoginRequest): LoginResponse
+    +me(): CurrentUser
+    +listRoles(): List<RolNombre>
+  }
+
+  class TeachersController <<controller>> {
+    +findTeachers(userId: long = null): List<Docente>
+  }
+
+  class StudentsController <<controller>> {
+    +createStudent(body: StudentCreate): Estudiante
+  }
+
+  class CoursesController <<controller>> {
+    +listCourses(teacherId: long = null, year: int = null): List<Curso>
+    +createCourse(body: CourseCreate): Curso
+    +updateCourse(courseId: long, body: CourseUpdate): Curso
+    +deleteCourse(courseId: long): void
+    +assignTeacher(courseId: long, teacherId: long): Curso
+  }
+
+  class EnrollmentsController <<controller>> {
+    +ensureEnrollment(body: EnrollmentCreate): {ok: bool}
+  }
+
+  class AssessmentsController <<controller>> {
+    +listAssessments(courseId: long): List<Evaluacion>
+    +createAssessment(body: AssessmentCreate): Evaluacion
+    +updateAssessment(assessmentId: long, name: string = null, weight: float = null): Evaluacion
+  }
+
+  class GradesController <<controller>> {
+    +getGrades(courseId: long, assessmentId: long = null): List<Nota>
+    +saveGradesBulk(body: GradeBulkRequest): {updated: int}
+    +courseSummary(courseId: long, year: int = null): List<CourseSummaryItem>
+  }
+
+  class ReportsController <<controller>> {
+    +reportCourseConsolidated(courseId: long, year: int = null): List<CourseConsolidatedItem>
+    +reportStudentCard(studentId: long): StudentReportCard
+    +reportCourseExport(courseId: long, format: 'csv' = 'csv'): file(csv)
+  }
+}
+
+' =============================
+' Servicios (Aplicación)
+' =============================
+package "Servicios (Aplicación)" {
+  class IAMService <<service>> {
+    +authenticate(username: string, password: string): LoginResponse
+    +getCurrentUser(userId: long): CurrentUser
+    +listRoles(): List<RolNombre>
+  }
+
+  class TeacherService <<service>> {
+    +findTeachers(userId: long = null): List<Docente>
+  }
+
+  class StudentService <<service>> {
+    +createStudent(dto: StudentCreate): Estudiante
+  }
+
+  class CourseService <<service>> {
+    +listCourses(actor: Usuario, teacherId: long = null, year: int = null): List<Curso>
+    +createCourse(dto: CourseCreate): Curso
+    +updateCourse(id: long, dto: CourseUpdate): Curso
+    +deleteCourse(id: long): void
+    +assignTeacher(courseId: long, teacherId: long): Curso
+  }
+
+  class EnrollmentService <<service>> {
+    +ensure(dto: EnrollmentCreate): bool
+  }
+
+  class AssessmentService <<service>> {
+    +listByCourse(courseId: long): List<Evaluacion>
+    +create(dto: AssessmentCreate): Evaluacion
+    +update(id: long, name: string = null, weight: float = null): Evaluacion
+  }
+
+  class GradeService <<service>> {
+    +getGrades(courseId: long, assessmentId: long = null): List<Nota>
+    +bulkUpsert(req: GradeBulkRequest): int
+    +courseSummary(courseId: long, year: int = null): List<CourseSummaryItem>
+  }
+
+  class ReportService <<service>> {
+    +courseConsolidated(courseId: long, year: int = null): List<CourseConsolidatedItem>
+    +studentCard(studentId: long): StudentReportCard
+    +courseExportCsv(courseId: long): file(csv)
+  }
+}
+
+' Controllers -> Services
+IAMController --> IAMService
+TeachersController --> TeacherService
+StudentsController --> StudentService
+CoursesController --> CourseService
+EnrollmentsController --> EnrollmentService
+AssessmentsController --> AssessmentService
+GradesController --> GradeService
+ReportsController --> ReportService
+
+' =============================
+' Dominio / Entidades (100% BD)
+' =============================
+package "Dominio / Entidades (sga_iam + sga_grades)" {
+  class Rol <<entity>> {
+    +id: BIGINT
+    +nombre: RolNombre  <<UNIQUE>>
+  }
+
+  class Usuario <<entity>> {
+    +id: BIGINT
+    +usuario: VARCHAR(80)  <<UNIQUE>>
+    +hash_contrasena: VARCHAR(255)
+    +correo: VARCHAR(150)
+    +estado: TINYINT               ' 1=activo, 0=inactivo
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    -- indices --
+    +idx_user_status(estado)
+    +idx_user_email(correo)
+  }
+
+  class UsuarioRol <<entity>> {
+    +user_id: BIGINT  <<PK, FK Usuario.id>>
+    +role_id: BIGINT  <<PK, FK Rol.id>>
+  }
+
+  class Apoderado <<entity>> {
+    +id: BIGINT
+    +usuario_padre_id: BIGINT   <<FK Usuario.id>>
+    +estudiante_id: BIGINT      <<FK lógico Estudiante.id>>
+    +creado_en: TIMESTAMP
+    -- restricciones --
+    +UNIQUE(uq_guardian: usuario_padre_id, estudiante_id)
+    +idx_guardian_parent(usuario_padre_id)
+    +idx_guardian_student(estudiante_id)
+  }
+
+  class Docente <<entity>> {
+    +id: BIGINT
+    +usuario_iam_id: BIGINT   <<FK lógico Usuario.id, UNIQUE>>
+    +nombre_completo: VARCHAR(120)
+    +estado: TINYINT
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    -- indices --
+    +idx_teacher_status(estado)
+    +idx_teacher_name(nombre_completo)
+  }
+
+  class Estudiante <<entity>> {
+    +id: BIGINT
+    +codigo: VARCHAR(40)  <<UNIQUE>>
+    +nombre_completo: VARCHAR(120)
+    +estado: TINYINT
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    -- indices --
+    +idx_student_name(nombre_completo)
+    +idx_student_status(estado)
+  }
+
+  class Curso <<entity>> {
+    +id: BIGINT
+    +nombre: VARCHAR(120)
+    +grado: VARCHAR(20)
+    +seccion: VARCHAR(10)
+    +docente_id: BIGINT   <<FK Docente.id>>
+    +estado: TINYINT
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    -- indices --
+    +idx_course_teacher(docente_id, estado)
+    +idx_course_name(nombre)
+  }
+
+  class Matricula <<entity>> {
+    +id: BIGINT
+    +estudiante_id: BIGINT  <<FK Estudiante.id>>
+    +curso_id: BIGINT       <<FK Curso.id>>
+    +anio_escolar: YEAR
+    +creado_en: TIMESTAMP
+    -- restricciones --
+    +UNIQUE(uq_enrollment: estudiante_id, curso_id, anio_escolar)
+    +idx_enr_course_year(curso_id, anio_escolar)
+    +idx_enr_student(estudiante_id)
+  }
+
+  class Evaluacion <<entity>> {
+    +id: BIGINT
+    +curso_id: BIGINT   <<FK Curso.id>>
+    +nombre: VARCHAR(80)
+    +ponderacion: DECIMAL(5,2)   ' total por curso <= 100
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    -- indices --
+    +idx_ass_course(curso_id)
+    +idx_ass_name(nombre)
+  }
+
+  class Nota <<entity>> {
+    +id: BIGINT
+    +matricula_id: BIGINT   <<FK Matricula.id>>
+    +evaluacion_id: BIGINT  <<FK Evaluacion.id>>
+    +puntaje: DECIMAL(5,2)  ' 0..20; NULL si pendiente
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    -- restricciones --
+    +UNIQUE(uq_grade: matricula_id, evaluacion_id)
+    +idx_grade_assessment(evaluacion_id)
+    +idx_grade_enrollment(matricula_id)
+  }
+
+  ' Relaciones de dominio (multiplicidades)
+  Usuario "1" -- "0..*" UsuarioRol
+  Rol     "1" -- "0..*" UsuarioRol
+  Usuario "1" -- "0..*" Apoderado : es_padre_de
+  Usuario .. Docente : usuario_iam_id (lógico)
+
+  Docente   "1" -- "0..*" Curso
+  Estudiante "1" -- "0..*" Matricula
+  Curso     "1" -- "0..*" Matricula
+  Curso     "1" -- "0..*" Evaluacion
+  Matricula "1" -- "0..*" Nota
+  Evaluacion "1" -- "0..*" Nota
+}
+
+' =============================
+' DTOs (Requests / Responses)
+' =============================
+package "DTOs" {
+  class LoginRequest <<dto>> {
+    +username: string
+    +password: string
+  }
+  class CurrentUser <<dto>> {
+    +id: long
+    +username: string
+    +roles: List<RolNombre>
+  }
+  class LoginResponse <<dto>> {
+    +token: string
+    +roles: List<RolNombre>
+    +user: CurrentUser
+  }
+
+  class StudentCreate <<dto>> {
+    +codigo: string
+    +nombre_completo: string
+    +estado: TINYINT
+  }
+
+  class CourseCreate <<dto>> {
+    +nombre: string
+    +grado: string
+    +seccion: string
+    +docente_id: long
+    +estado: TINYINT
+  }
+  class CourseUpdate <<dto>> {
+    +nombre: string
+    +grado: string
+    +seccion: string
+    +docente_id: long
+    +estado: TINYINT
+  }
+
+  class AssessmentCreate <<dto>> {
+    +curso_id: long
+    +nombre: string
+    +ponderacion: number
+  }
+
+  class EnrollmentCreate <<dto>> {
+    +estudiante_id: long
+    +curso_id: long
+    +anio_escolar: int
+  }
+
+  class GradeBulkItem <<dto>> {
+    +student_id: long
+    +assessment_id: long
+    +score: number
+  }
+  class GradeBulkRequest <<dto>> {
+    +course_id: long
+    +items: List<GradeBulkItem>
+  }
+
+  ' Respuestas de reportes
+  class CourseSummaryItem <<dto>> {
+    +studentId: long
+    +weightedAverage: number
+  }
+  class CourseConsolidatedItem <<dto>> {
+    +studentId: long
+    +name: string
+    +weightedAverage: number
+  }
+  class StudentReportCard <<dto>> {
+    +studentId: long
+    +courseAverages: List<CourseConsolidatedItem>
+  }
+}
+
+' =============================
+' Uso de DTOs por Controllers
+' =============================
+IAMController ..> LoginRequest
+IAMController ..> LoginResponse
+IAMController ..> CurrentUser
+
+StudentsController ..> StudentCreate
+CoursesController ..> CourseCreate
+CoursesController ..> CourseUpdate
+AssessmentsController ..> AssessmentCreate
+EnrollmentsController ..> EnrollmentCreate
+GradesController ..> GradeBulkRequest
+
+GradesController ..> CourseSummaryItem
+ReportsController ..> CourseConsolidatedItem
+ReportsController ..> StudentReportCard
+
+@enduml

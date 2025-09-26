@@ -1,0 +1,182 @@
+@startuml
+title SISTEMA_NOTAS – Diagrama de Clases (COMPLETO)\n(Alineado 100% a BD y endpoints)
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam linetype ortho
+skinparam packageStyle rectangle
+hide circle
+
+package "IAM (sga_iam)" {
+  enum RolNombre {
+    DOCENTE
+    PADRE
+    DIRECTIVO
+  }
+
+  class Rol {
+    +id: BIGINT <<PK>>
+    +nombre: RolNombre <<UNIQUE>>
+  }
+
+  class Usuario {
+    +id: BIGINT <<PK>>
+    --
+    +usuario: VARCHAR(80) <<UNIQUE>>
+    +hash_contrasena: VARCHAR(255)
+    +correo: VARCHAR(150)
+    +estado: TINYINT   ' 1=activo, 0=inactivo
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    == Índices ==
+    +IDX idx_user_status(estado)
+    +IDX idx_user_email(correo)
+  }
+
+  class UsuarioRol {
+    +user_id: BIGINT <<PK, FK Usuario.id>>
+    +role_id: BIGINT <<PK, FK Rol.id>>
+  }
+
+  class Apoderado {
+    +id: BIGINT <<PK>>
+    --
+    +usuario_padre_id: BIGINT <<FK Usuario.id>>
+    +estudiante_id: BIGINT <<FK lógico sga_grades.Estudiante.id>>
+    +creado_en: TIMESTAMP
+    == Restricciones ==
+    +UNIQUE(uq_guardian: usuario_padre_id, estudiante_id)
+    == Índices ==
+    +IDX idx_guardian_parent(usuario_padre_id)
+    +IDX idx_guardian_student(estudiante_id)
+  }
+
+  Usuario "1" -- "0..*" UsuarioRol
+  Rol     "1" -- "0..*" UsuarioRol
+  Usuario "1" -- "0..*" Apoderado : es_padre_de
+}
+
+package "GRADES (sga_grades)" {
+  class Docente {
+    +id: BIGINT <<PK>>
+    --
+    +usuario_iam_id: BIGINT <<FK lógico sga_iam.Usuario.id, UNIQUE>>
+    +nombre_completo: VARCHAR(120)
+    +estado: TINYINT
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    == Índices ==
+    +IDX idx_teacher_status(estado)
+    +IDX idx_teacher_name(nombre_completo)
+  }
+
+  class Estudiante {
+    +id: BIGINT <<PK>>
+    --
+    +codigo: VARCHAR(40) <<UNIQUE>>
+    +nombre_completo: VARCHAR(120)
+    +estado: TINYINT
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    == Índices ==
+    +IDX idx_student_name(nombre_completo)
+    +IDX idx_student_status(estado)
+  }
+
+  class Curso {
+    +id: BIGINT <<PK>>
+    --
+    +nombre: VARCHAR(120)
+    +grado: VARCHAR(20)
+    +seccion: VARCHAR(10)
+    +docente_id: BIGINT <<FK Docente.id>>
+    +estado: TINYINT
+    +eliminado: TINYINT(1) = 0
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    == Índices ==
+    +IDX idx_course_teacher(docente_id, estado)
+    +IDX idx_course_name(nombre)
+  }
+
+  class Matricula {
+    +id: BIGINT <<PK>>
+    --
+    +estudiante_id: BIGINT <<FK Estudiante.id>>
+    +curso_id: BIGINT <<FK Curso.id>>
+    +anio_escolar: YEAR
+    +creado_en: TIMESTAMP
+    == Restricciones ==
+    +UNIQUE(uq_enrollment: estudiante_id, curso_id, anio_escolar)
+    == Índices ==
+    +IDX idx_enr_course_year(curso_id, anio_escolar)
+    +IDX idx_enr_student(estudiante_id)
+  }
+
+  class Evaluacion {
+    +id: BIGINT <<PK>>
+    --
+    +curso_id: BIGINT <<FK Curso.id>>
+    +nombre: VARCHAR(80)
+    +ponderacion: DECIMAL(5,2)   ' total por curso <= 100
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    == Índices ==
+    +IDX idx_ass_course(curso_id)
+    +IDX idx_ass_name(nombre)
+  }
+
+  class Nota {
+    +id: BIGINT <<PK>>
+    --
+    +matricula_id: BIGINT <<FK Matricula.id>>
+    +evaluacion_id: BIGINT <<FK Evaluacion.id>>
+    +puntaje: DECIMAL(5,2)   ' 0..20; NULL si pendiente
+    +creado_en: TIMESTAMP
+    +actualizado_en: TIMESTAMP
+    == Restricciones ==
+    +UNIQUE(uq_grade: matricula_id, evaluacion_id)
+    == Índices ==
+    +IDX idx_grade_assessment(evaluacion_id)
+    +IDX idx_grade_enrollment(matricula_id)
+  }
+
+  ' Vistas de reporte (sólo lectura)
+  class "vw_notas_por_curso" <<view>> {
+    +curso_id: BIGINT
+    +curso_nombre: VARCHAR
+    +grado: VARCHAR
+    +seccion: VARCHAR
+    +estudiante_id: BIGINT
+    +estudiante_codigo: VARCHAR
+    +estudiante_nombre: VARCHAR
+    +evaluacion_id: BIGINT
+    +evaluacion_nombre: VARCHAR
+    +evaluacion_ponderacion: DECIMAL(5,2)
+    +puntaje: DECIMAL(5,2)
+  }
+
+  class "vw_resumen_curso" <<view>> {
+    +curso_id: BIGINT
+    +curso_nombre: VARCHAR
+    +estudiante_id: BIGINT
+    +estudiante_nombre: VARCHAR
+    +promedio_ponderado: DECIMAL(5,2)
+  }
+
+  Docente   "1" -- "0..*" Curso       : dicta
+  Estudiante "1" -- "0..*" Matricula  : se_matricula
+  Curso     "1" -- "0..*" Matricula   : admite
+  Curso     "1" -- "0..*" Evaluacion  : define
+  Matricula "1" -- "0..*" Nota        : registra
+  Evaluacion "1" -- "0..*" Nota       : califica
+
+  ' Relaciones lógicas entre contextos
+  Usuario .. Docente      : usuario_iam_id (lógico)
+  Apoderado .. Estudiante : estudiante_id (lógico)
+}
+
+@enduml
