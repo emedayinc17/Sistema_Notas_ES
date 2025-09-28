@@ -7,3 +7,11 @@ resources:
   - svc-mysql.yaml
   - svc-mysql-headless.yaml
   - statefulset.yaml
+  - nodeport.yaml
+configMapGenerator:
+  - name: mysql-init-scripts
+    files:
+      - sql/script.sql
+      - sql/script2.sql
+generatorOptions:
+  disableNameSuffixHash: true   # nombre fijo para montarlo por nombre

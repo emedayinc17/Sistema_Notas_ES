@@ -36,6 +36,8 @@ spec:
               mountPath: /var/lib/mysql
             - name: mycnf
               mountPath: /etc/mysql/conf.d
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
           readinessProbe:
             exec:
               command: ["sh","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
@@ -60,6 +62,9 @@ spec:
             items:
               - key: my.cnf
                 path: my.cnf
+        - name: init-scripts
+          configMap:
+            name: mysql-init-scripts
   volumeClaimTemplates:
     - metadata:
         name: data
