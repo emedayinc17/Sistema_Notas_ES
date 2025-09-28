@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# El namespace ya lo pone el kustomization de base (namespace: sistema-notas)
+resources:
+  - secret-root.yaml
+  - configmap.yaml
+  - svc-mysql.yaml
+  - svc-mysql-headless.yaml
+  - statefulset.yaml

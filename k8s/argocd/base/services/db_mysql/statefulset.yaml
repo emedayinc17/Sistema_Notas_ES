@@ -1,80 +1,19 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: sistema-notas
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-root-secret
-  namespace: sistema-notas
-type: Opaque
-data:
-  MYSQL_ROOT_PASSWORD: c2lzdGVtYV9ub3Rh
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mysql-config
-  namespace: sistema-notas
-data:
-  my.cnf: |
-    [mysqld]
-    character-set-server = utf8mb4
-    collation-server      = utf8mb4_0900_ai_ci
-    sql_mode              = STRICT_ALL_TABLES
-    default_time_zone     = +00:00
-    innodb_flush_method   = O_DIRECT
-    innodb_log_file_size  = 256M
-    innodb_buffer_pool_size = 512M
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql
-  namespace: sistema-notas
-  labels: 
-    app: mysql
-spec:
-  type: ClusterIP
-  ports:
-    - name: mysql
-      port: 3306
-      targetPort: 3306
-  selector: 
-    app: mysql
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mysql-headless
-  namespace: sistema-notas
-  labels: 
-    app: mysql
-spec:
-  clusterIP: None
-  ports:
-    - name: mysql
-      port: 3306
-      targetPort: 3306
-  selector: 
-    app: mysql
----
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mysql
-  namespace: sistema-notas
+  labels: { app: mysql }
+  annotations:
+    # Si el StatefulSet “vivo” difiere en campos inmutables, esto permite recrearlo.
+    argocd.argoproj.io/sync-options: Replace=true
 spec:
   serviceName: mysql-headless
   replicas: 1
   selector:
-    matchLabels: 
-      app: mysql
+    matchLabels: { app: mysql }
   template:
     metadata:
-      labels: 
-        app: mysql
+      labels: { app: mysql }
     spec:
       securityContext:
         fsGroup: 999
@@ -99,26 +38,26 @@ spec:
               mountPath: /etc/mysql/conf.d
           readinessProbe:
             exec:
-              command: ["bash","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
+              command: ["sh","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
             initialDelaySeconds: 20
             periodSeconds: 10
           livenessProbe:
             exec:
-              command: ["bash","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
+              command: ["sh","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
             initialDelaySeconds: 40
             periodSeconds: 10
           resources:
-            requests: 
+            requests:
               cpu: "250m"
               memory: "512Mi"
-            limits:   
+            limits:
               cpu: "1000m"
               memory: "2Gi"
       volumes:
         - name: mycnf
           configMap:
             name: mysql-config
-            items: 
+            items:
               - key: my.cnf
                 path: my.cnf
   volumeClaimTemplates:
@@ -126,7 +65,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: microk8s-hostpath
+        storageClassName: microk8s-hostpath   # ajusta si usas otra SC
         resources:
-          requests: 
+          requests:
             storage: 10Gi
