@@ -4,7 +4,7 @@ metadata:
   name: mysql
   labels: { app: mysql }
   annotations:
-    # Si el StatefulSet “vivo” difiere en campos inmutables, esto permite recrearlo.
+    # Permite recrear SS si cambian campos inmutables (no borra PVC).
     argocd.argoproj.io/sync-options: Replace=true
 spec:
   serviceName: mysql-headless
@@ -17,30 +17,6 @@ spec:
     spec:
       securityContext:
         fsGroup: 999
-      # 👉 InitContainer que ejecuta los scripts .sql
-      initContainers:
-        - name: init-mysql-db
-          image: mysql:8.0
-          command: ["sh","-lc"]
-          args:
-            - |
-              echo "Esperando MySQL...";
-              until mysqladmin ping -h mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do sleep 2; done
-              echo "Ejecutando scripts de inicialización...";
-              for f in /init-scripts/*.sql; do
-                [ -f "$f" ] || continue
-                echo ">> Ejecutando $f"
-                mysql -h mysql -uroot -p"$MYSQL_ROOT_PASSWORD" < "$f"
-              done
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-root-secret
-                  key: MYSQL_ROOT_PASSWORD
-          volumeMounts:
-            - name: init-scripts
-              mountPath: /init-scripts
       containers:
         - name: mysql
           image: mysql:8.0
@@ -60,8 +36,38 @@ spec:
               mountPath: /var/lib/mysql
             - name: mycnf
               mountPath: /etc/mysql/conf.d
+            # ConfigMap con tus .sql (kustomize configMapGenerator)
             - name: init-scripts
               mountPath: /docker-entrypoint-initdb.d
+          # ✅ Ejecuta los .sql tras arrancar mysqld (evita deadlock del initContainer)
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - sh
+                  - -lc
+                  - |
+                    (
+                      echo "[postStart] esperando MySQL..."
+                      # espera hasta 120s a que responda
+                      for i in $(seq 1 60); do
+                        if mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; then
+                          break
+                        fi
+                        sleep 2
+                      done
+                      if ! mysqladmin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; then
+                        echo "[postStart] MySQL no respondió a tiempo, continúo igualmente."
+                      fi
+                      echo "[postStart] ejecutando *.sql en /docker-entrypoint-initdb.d"
+                      for f in /docker-entrypoint-initdb.d/*.sql; do
+                        [ -f "$f" ] || continue
+                        echo ">> $f"
+                        # que sea idempotente: si falla un script, no tumbes el contenedor
+                        mysql -uroot -p"$MYSQL_ROOT_PASSWORD" < "$f" || true
+                      done
+                      echo "[postStart] scripts terminados"
+                    ) >> /var/log/mysql-init-scripts.log 2>&1 &
           readinessProbe:
             exec:
               command: ["sh","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
@@ -94,7 +100,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: microk8s-hostpath   # ajusta si usas otra SC
+        storageClassName: microk8s-hostpath
         resources:
           requests:
             storage: 10Gi
