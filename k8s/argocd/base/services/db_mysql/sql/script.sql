@@ -258,8 +258,8 @@ ON DUPLICATE KEY UPDATE usuario_padre_id=usuario_padre_id;
 /* =========================
    3) APP USERS & GRANTS
    ========================= */
-/*CREATE USER IF NOT EXISTS 'app_iam'@'%'    IDENTIFIED BY 'Iam2025!';
-CREATE USER IF NOT EXISTS 'app_grades'@'%' IDENTIFIED BY 'Grades@2025!';*/
+CREATE USER IF NOT EXISTS 'app_iam'@'%'    IDENTIFIED BY 'Iam_2025!';
+CREATE USER IF NOT EXISTS 'app_grades'@'%' IDENTIFIED BY 'Grades_2025!';
 
 ALTER USER 'app_iam'@'%' IDENTIFIED BY 'Iam_2025!';
 ALTER USER 'app_grades'@'%' IDENTIFIED BY 'Grades_2025!';
@@ -269,7 +269,7 @@ GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,ALTER,INDEX ON sga_grades.* TO 'app_gra
 
 FLUSH PRIVILEGES;
 
-/* Quick check */
+/* Quick check 
 SELECT id, nombre, grado, seccion, docente_id, estado
 FROM curso
-WHERE docente_id = 1;
+WHERE docente_id = 1;*/

@@ -6,4 +6,4 @@ pydantic-settings>=2.2
 PyMySQL>=1.1
 PyJWT>=2.8
 passlib[bcrypt]>=1.7
-pydantic[email]
+cryptography>=42,<43

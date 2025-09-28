@@ -1,0 +1,134 @@
+kubectl apply -f infra/mysql/statefulset.yaml
+kubectl -n sistema-notas get pods,svc,pvc
+
+kubectl apply -k overlays/dev
+
+
+
+kubectl -n vault exec -it statefulset/vault -c vault -- sh
+export VAULT_ADDR="http://vault.vault.svc:8200"
+export VAULT_TOKEN="hvs.gkRQhROesZuIqF92LvZgdrUI"
+
+vault status;                     
+vault operator unseal cHkld34KUc06V8ht0MnLpwbq18rGWhamiFYRoiany4Q=;
+vault status;     
+
+# IAM
+vault kv put kv/sistema-notas/iam \
+  APP_ENV=prod \
+  DB_HOST=mysql.sistema-notas.svc.cluster.local \
+  DB_PORT=3306 \
+  DB_IAM_NAME=sga_iam DB_IAM_USER=app_iam DB_IAM_PASS='Iam_2025!' \
+  DB_GRADES_NAME=sga_grades DB_GRADES_USER=app_grades DB_GRADES_PASS='Grades_2025!' \
+  JWT_SECRET='68ce0fe6-f1ac-8324-81cd-da3ad4b4161d' JWT_ALG=HS256 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+# Personas
+vault kv put kv/sistema-notas/personas \
+  APP_ENV=prod \
+  DB_HOST=mysql.sistema-notas.svc.cluster.local \
+  DB_PORT=3306 \
+  DB_IAM_NAME=sga_iam DB_IAM_USER=app_iam DB_IAM_PASS='Iam_2025!' \
+  DB_GRADES_NAME=sga_grades DB_GRADES_USER=app_grades DB_GRADES_PASS='Grades_2025!' \
+  JWT_SECRET='68ce0fe6-f1ac-8324-81cd-da3ad4b4161d' JWT_ALG=HS256 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+# Cursos
+vault kv put kv/sistema-notas/cursos \
+  APP_ENV=prod \
+  DB_HOST=mysql.sistema-notas.svc.cluster.local \
+  DB_PORT=3306 \
+  DB_IAM_NAME=sga_iam DB_IAM_USER=app_iam DB_IAM_PASS='Iam_2025!' \
+  DB_GRADES_NAME=sga_grades DB_GRADES_USER=app_grades DB_GRADES_PASS='Grades_2025!' \
+  JWT_SECRET='68ce0fe6-f1ac-8324-81cd-da3ad4b4161d' JWT_ALG=HS256 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+# Evaluaciones
+vault kv put kv/sistema-notas/evaluaciones \
+  APP_ENV=prod \
+  DB_HOST=mysql.sistema-notas.svc.cluster.local \
+  DB_PORT=3306 \
+  DB_IAM_NAME=sga_iam DB_IAM_USER=app_iam DB_IAM_PASS='Iam_2025!' \
+  DB_GRADES_NAME=sga_grades DB_GRADES_USER=app_grades DB_GRADES_PASS='Grades_2025!' \
+  JWT_SECRET='68ce0fe6-f1ac-8324-81cd-da3ad4b4161d' JWT_ALG=HS256 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+--Validar
+vault kv get kv/sistema-notas/iam
+vault kv get kv/sistema-notas/cursos
+
+---(Re)crea la policy correcta para KV v2 (en caso falle)
+cat >/tmp/sistema-notas.hcl <<'EOF'
+path "kv/data/sistema-notas/*" {
+  capabilities = ["read"]
+}
+path "kv/metadata/sistema-notas/*" {
+  capabilities = ["read", "list"]
+}
+EOF
+
+vault policy write sistema-notas /tmp/sistema-notas.hcl
+vault policy read sistema-notas
+
+vault write auth/kubernetes/role/sistema-notas-role \
+  bound_service_account_names=app-notas \
+  bound_service_account_namespaces=sistema-notas \
+  policies=sistema-notas \
+  ttl=24h
+
+vault read auth/kubernetes/role/sistema-notas-role
+# Confirma: bound_service_account_names=app-notas, bound_service_account_namespaces=sistema-notas, policies=["sistema-notas"]
+
+  --para hacer rollout--
+  kubectl -n sistema-notas rollout restart deploy/iam-api
+  kubectl -n sistema-notas rollout restart deploy/personas-api
+  kubectl -n sistema-notas rollout restart deploy/cursos-api
+  kubectl -n sistema-notas rollout restart deploy/evaluaciones-api
+  kubectl -n sistema-notas get pods -w
+
+--desplegar
+
+cd ~/sistema_notas/k8s-micro-api-notas-argocd
+
+# DEV
+kubectl apply -k overlays/dev
+# o PROD
+kubectl apply -k overlays/prod
+# kubectl apply -k overlays/prod
+
+# Espera a que suban
+kubectl -n sistema-notas get deploy,po,svc,ingress
+kubectl -n sistema-notas rollout status deploy/iam
+kubectl -n sistema-notas rollout status deploy/personas
+kubectl -n sistema-notas rollout status deploy/cursos
+kubectl -n sistema-notas rollout status deploy/evaluaciones
+
+--verficar despliegue
+
+kubectl -n sistema-notas get ingress
+
+# Resuelve el host a la IP de tu LB: 10.10.0.80 (según tu cluster)
+curl -k https://api-notas.emeday.inc/iam/health
+curl -k https://api-notas.emeday.inc/personas/health
+curl -k https://api-notas.emeday.inc/cursos/health
+curl -k https://api-notas.emeday.inc/evaluaciones/health
+
+
+
+---si no conecta con la bd---
+# Escapa comillas simples para SQL
+PASS_ESCAPED=$(printf "%s" "$PASS" | sed "s/'/''/g")
+
+# Aplica el cambio dentro del contenedor de MySQL
+kubectl -n sistema-notas exec -i statefulset/mysql -- sh -lc \
+"mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -e \"
+ALTER USER 'app_grades'@'%' IDENTIFIED WITH mysql_native_password BY '$PASS_ESCAPED';
+ALTER USER 'app_grades'@'%' ACCOUNT UNLOCK;
+FLUSH PRIVILEGES;
+SELECT user,host,plugin,account_locked FROM mysql.user WHERE user='app_grades';
+\""
+
+
+kubectl -n sistema-notas exec -it statefulset/mysql -- \
+  sh -lc 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+ALTER USER '\''app_iam'\''@'\''%'\'' IDENTIFIED WITH mysql_native_password BY '\''Iam_2025!'\'';
+ALTER USER '\''app_grades'\''@'\''%'\'' IDENTIFIED WITH mysql_native_password BY '\''Grades_2025!'\'';
+FLUSH PRIVILEGES;
+SELECT user, host, plugin FROM mysql.user WHERE user IN ('\''app_iam'\'','\''app_grades'\'');
+"'
