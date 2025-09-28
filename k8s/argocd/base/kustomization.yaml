@@ -8,5 +8,4 @@ resources:
   - services/personas/deploy-svc.yaml
   - services/cursos/deploy-svc.yaml
   - services/evaluaciones/deploy-svc.yaml
-  - services/db_mysql/statefulset.yaml 
   - ingress/ingress.yaml
