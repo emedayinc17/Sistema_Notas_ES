@@ -1,0 +1,8 @@
+# IAM (DSN: IAM)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8010 --app-dir services\iam_service --env-file services\iam_service\.env
+# Personas (DSN: GRADES)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8020 --app-dir services\personas_service --env-file services\personas_service\.env
+# Cursos (DSN: GRADES)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8030 --app-dir services\cursos_service --env-file services\cursos_service\.env
+# Evaluaciones (DSN: GRADES)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8040 --app-dir services\evaluaciones_service --env-file services\evaluaciones_service\.env

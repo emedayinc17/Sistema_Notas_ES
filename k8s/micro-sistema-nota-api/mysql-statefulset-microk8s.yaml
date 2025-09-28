@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sistema-notas
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-root-secret
+  namespace: sistema-notas
+type: Opaque
+data:
+  # base64 de la contraseña de root (ej.: "sistema@nota")
+  #echo -n 'sistema_nota' | base64
+  MYSQL_ROOT_PASSWORD: c2lzdGVtYV9ub3Rh
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: sistema-notas
+data:
+  my.cnf: |
+    [mysqld]
+    character-set-server = utf8mb4
+    collation-server      = utf8mb4_0900_ai_ci
+    sql_mode              = STRICT_ALL_TABLES
+    default_time_zone     = +00:00
+    innodb_flush_method   = O_DIRECT
+    innodb_log_file_size  = 256M
+    innodb_buffer_pool_size = 512M
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: sistema-notas
+  labels: { app: mysql }
+spec:
+  type: ClusterIP
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  selector: { app: mysql }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-headless
+  namespace: sistema-notas
+  labels: { app: mysql }
+spec:
+  clusterIP: None
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+  selector: { app: mysql }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: sistema-notas
+spec:
+  serviceName: mysql-headless
+  replicas: 1
+  selector:
+    matchLabels: { app: mysql }
+  template:
+    metadata:
+      labels: { app: mysql }
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: mysql
+              containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-root-secret
+                  key: MYSQL_ROOT_PASSWORD
+          args: ["--default-authentication-plugin=mysql_native_password"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: mycnf
+              mountPath: /etc/mysql/conf.d
+          readinessProbe:
+            exec:
+              command: ["bash","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["bash","-lc","mysqladmin ping -uroot -p$MYSQL_ROOT_PASSWORD"]
+            initialDelaySeconds: 40
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits:   { cpu: "1000m", memory: "2Gi" }
+      volumes:
+        - name: mycnf
+          configMap:
+            name: mysql-config
+            items: [{ key: my.cnf, path: my.cnf }]
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: microk8s-hostpath
+        resources:
+          requests: { storage: 10Gi }
+
+#kubectl apply -f mysql-infra-only.yaml
+#kubectl -n sistema-notas get pods,pvc,svc
+#kubectl -n sistema-notas logs statefulset/mysql

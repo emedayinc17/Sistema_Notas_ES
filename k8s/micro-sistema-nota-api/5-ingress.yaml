@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sistema-notas-ingress
+  namespace: sistema-notas
+  annotations:
+    kubernetes.io/ingress.class: "public"   # en microk8s suele ser "public"; si usas nginx, cambia a "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    # cert-manager.io/cluster-issuer: "selfsigned-issuer"  # Activa si quieres TLS ahora
+spec:
+  rules:
+    - host: api-notas.emeday.inc
+      http:
+        paths:
+          - path: /iam(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: iam-service
+                port: { number: 80 }
+          - path: /personas(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: personas-service
+                port: { number: 80 }
+          - path: /cursos(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: cursos-service
+                port: { number: 80 }
+          - path: /evaluaciones(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: evaluaciones-service
+                port: { number: 80 }

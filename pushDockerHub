@@ -1,0 +1,19 @@
+# IAM
+docker build -f services/iam_service/Dockerfile -t emeday17/sistema-notas-iam:1.0.0 -t emeday17/sistema-notas-iam:latest .
+docker push emeday17/sistema-notas-iam:1.0.0
+docker push emeday17/sistema-notas-iam:latest
+
+# Personas
+docker build -f services/personas_service/Dockerfile -t emeday17/sistema-notas-personas:1.0.0 -t emeday17/sistema-notas-personas:latest .
+docker push emeday17/sistema-notas-personas:1.0.0
+docker push emeday17/sistema-notas-personas:latest
+
+# Cursos
+docker build -f services/cursos_service/Dockerfile -t emeday17/sistema-notas-cursos:1.0.0 -t emeday17/sistema-notas-cursos:latest .
+docker push emeday17/sistema-notas-cursos:1.0.0
+docker push emeday17/sistema-notas-cursos:latest
+
+# Evaluaciones
+docker build -f services/evaluaciones_service/Dockerfile -t emeday17/sistema-notas-evaluaciones:1.0.0 -t emeday17/sistema-notas-evaluaciones:latest .
+docker push emeday17/sistema-notas-evaluaciones:1.0.0
+docker push emeday17/sistema-notas-evaluaciones:latest

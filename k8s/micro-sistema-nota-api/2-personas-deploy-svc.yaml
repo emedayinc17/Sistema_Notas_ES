@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: personas-service
+  namespace: sistema-notas
+  labels: { app: personas-service }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: personas-service } }
+  template:
+    metadata:
+      labels: { app: personas-service }
+      annotations:
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "sistema-notas-role"
+        vault.hashicorp.com/agent-inject-secret-app.env: "kv/data/sistema-notas/personas"
+        vault.hashicorp.com/agent-inject-template-app.env: |
+          {{- with secret "kv/data/sistema-notas/personas" -}}
+          APP_ENV={{ .Data.data.APP_ENV | default "prod" }}
+          DB_HOST={{ .Data.data.DB_HOST }}
+          DB_PORT={{ .Data.data.DB_PORT }}
+          DB_IAM_NAME={{ .Data.data.DB_IAM_NAME }}
+          DB_IAM_USER={{ .Data.data.DB_IAM_USER }}
+          DB_IAM_PASS={{ .Data.data.DB_IAM_PASS }}
+          DB_GRADES_NAME={{ .Data.data.DB_GRADES_NAME }}
+          DB_GRADES_USER={{ .Data.data.DB_GRADES_USER }}
+          DB_GRADES_PASS={{ .Data.data.DB_GRADES_PASS }}
+          JWT_SECRET={{ .Data.data.JWT_SECRET }}
+          JWT_ALG={{ .Data.data.JWT_ALG | default "HS256" }}
+          ACCESS_TOKEN_EXPIRE_MINUTES={{ .Data.data.ACCESS_TOKEN_EXPIRE_MINUTES | default "60" }}
+          {{- end }}
+    spec:
+      serviceAccountName: app-notas
+      containers:
+        - name: personas-service
+          image: emeday17/personas-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 8000 }]
+          readinessProbe: { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 10 }
+          livenessProbe:  { httpGet: { path: /health, port: 8000 }, initialDelaySeconds: 20 }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: personas-service
+  namespace: sistema-notas
+spec:
+  selector: { app: personas-service }
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP

@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sistema-notas-api
+  namespace: sistema-notas
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # Strip del prefijo (/iam, /personas, /cursos, /evaluaciones)
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, PUT, POST, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api-notas.emeday.inc
+      http:
+        paths:
+          - path: /iam(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: iam-api
+                port:
+                  number: 80
+          - path: /personas(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: personas-api
+                port:
+                  number: 80
+          - path: /cursos(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: cursos-api
+                port:
+                  number: 80
+          - path: /evaluaciones(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: evaluaciones-api
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - api-notas.emeday.inc
+      secretName: sistema-notas-tls

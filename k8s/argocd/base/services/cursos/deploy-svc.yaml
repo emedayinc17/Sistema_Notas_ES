@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cursos-api
+  namespace: sistema-notas
+  labels:
+    app: cursos-api
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cursos-api
+  template:
+    metadata:
+      labels:
+        app: cursos-api
+      annotations:
+        # === Vault Agent Injector ===
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/role: "sistema-notas-role"
+        vault.hashicorp.com/agent-inject-secret-app.env: "kv/data/sistema-notas/cursos"
+        vault.hashicorp.com/agent-inject-template-app.env: |
+          {{- with secret "kv/data/sistema-notas/cursos" -}}
+          APP_ENV={{ .Data.data.APP_ENV }}
+          DB_HOST={{ .Data.data.DB_HOST }}
+          DB_PORT={{ .Data.data.DB_PORT }}
+          DB_IAM_NAME={{ .Data.data.DB_IAM_NAME }}
+          DB_IAM_USER={{ .Data.data.DB_IAM_USER }}
+          DB_IAM_PASS={{ .Data.data.DB_IAM_PASS }}
+          DB_GRADES_NAME={{ .Data.data.DB_GRADES_NAME }}
+          DB_GRADES_USER={{ .Data.data.DB_GRADES_USER }}
+          DB_GRADES_PASS={{ .Data.data.DB_GRADES_PASS }}
+          JWT_SECRET={{ .Data.data.JWT_SECRET }}
+          JWT_ALG={{ .Data.data.JWT_ALG }}
+          ACCESS_TOKEN_EXPIRE_MINUTES={{ .Data.data.ACCESS_TOKEN_EXPIRE_MINUTES }}
+          {{- end }}
+    spec:
+      serviceAccountName: app-notas
+      containers:
+        - name: api
+          image: emeday17/sistema-notas-cursos:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            # Host/puerto del Service de MySQL (fijos)
+            - name: DB_HOST
+              value: mysql.sistema-notas.svc.cluster.local
+            - name: DB_PORT
+              value: "3306"
+            # Target del ASGI app (ajústalo si tu layout es distinto)
+            - name: APP_MODULE
+              value: "app.main:app"
+            # Rutas comunes de código dentro de la imagen
+            - name: PYTHONPATH
+              value: "/app:/code:/usr/src/app"
+          command: ["/bin/sh","-lc"]
+          args:
+            - |
+              args:
+                - |
+                  set -e
+                  set -a
+                  [ -f /vault/secrets/app.env ] && . /vault/secrets/app.env
+                  set +a
+                  echo "DBG -> DB_GRADES_NAME=$DB_GRADES_NAME DB_GRADES_USER=$DB_GRADES_USER DB_HOST=$DB_HOST DB_PORT=$DB_PORT"
+                  exec python -m uvicorn "${APP_MODULE:-app.main:app}" \
+                    --host 0.0.0.0 --port 8000 --root-path /cursos \
+                    --proxy-headers --forwarded-allow-ips="*"
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cursos-api
+  namespace: sistema-notas
+  labels:
+    app: cursos-api
+spec:
+  type: ClusterIP
+  selector:
+    app: cursos-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP

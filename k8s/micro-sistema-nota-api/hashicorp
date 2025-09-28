@@ -1,0 +1,30 @@
+# IAM
+vault kv put kv/sistema-notas-es/iam-service \
+  DB_HOST="mysql.default.svc.cluster.local" \
+  DB_PORT="3306" \
+  DB_IAM_NAME="sga_iam" \
+  DB_IAM_USER="app_iam" \
+  DB_IAM_PASS="Iam_2025!" \
+  DB_GRADES_NAME="sga_grades" \
+  DB_GRADES_USER="app_grades" \
+  DB_GRADES_PASS="Grades_2025!" \
+  JWT_SECRET="supersecreto" \
+  JWT_ALG="HS256" \
+  ACCESS_TOKEN_EXPIRE_MINUTES="60"
+
+
+# IAM
+vault kv put kv/sistema-notas/iam \
+  APP_ENV=prod DB_HOST=mysql.sistema-notas.svc.cluster.local DB_PORT=3306 \
+  DB_IAM_NAME=sga_iam DB_IAM_USER=app_iam DB_IAM_PASS=Iam_2025! \
+  DB_GRADES_NAME=sga_grades DB_GRADES_USER=app_grades DB_GRADES_PASS=Grades_2025! \
+  JWT_SECRET="cambia-esto" JWT_ALG=HS256 ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+# Personas (puedes reutilizar los mismos valores)
+vault kv put kv/sistema-notas/personas  @<(vault kv get -format=json kv/sistema-notas/iam | jq -r '.data.data' )
+
+# Cursos
+vault kv put kv/sistema-notas/cursos    @<(vault kv get -format=json kv/sistema-notas/iam | jq -r '.data.data' )
+
+# Evaluaciones
+vault kv put kv/sistema-notas/evaluaciones @<(vault kv get -format=json kv/sistema-notas/iam | jq -r '.data.data' )
