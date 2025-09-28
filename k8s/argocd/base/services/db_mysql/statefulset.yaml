@@ -17,6 +17,30 @@ spec:
     spec:
       securityContext:
         fsGroup: 999
+      # 👉 InitContainer que ejecuta los scripts .sql
+      initContainers:
+        - name: init-mysql-db
+          image: mysql:8.0
+          command: ["sh","-lc"]
+          args:
+            - |
+              echo "Esperando MySQL...";
+              until mysqladmin ping -h mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do sleep 2; done
+              echo "Ejecutando scripts de inicialización...";
+              for f in /init-scripts/*.sql; do
+                [ -f "$f" ] || continue
+                echo ">> Ejecutando $f"
+                mysql -h mysql -uroot -p"$MYSQL_ROOT_PASSWORD" < "$f"
+              done
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-root-secret
+                  key: MYSQL_ROOT_PASSWORD
+          volumeMounts:
+            - name: init-scripts
+              mountPath: /init-scripts
       containers:
         - name: mysql
           image: mysql:8.0
